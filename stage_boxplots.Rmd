@@ -1,0 +1,105 @@
+---
+title: "nyudatathon"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Install the "big R query" package, if neccessary by uncommenting the following two lines:
+#install.packages('devtools')
+#devtools::install_github("rstats-db/bigrquery")
+library("bigrquery")
+# Install ggplot2, uncomment next line if this is the first time this section is run.
+#install.packages("ggplot2")
+library("ggplot2")
+# Re-install curl to avoid errors like:
+# Error in curl::curl_fetch_memory(url, handle = handle) :
+#   Error in the HTTP2 framing layer
+# Uncomment next line if this is the first time this section is run.
+#install.packages("curl")
+library(curl)
+# Install missing dependency, uncomment next line if this is the first time this section is run.
+#install.packages("readr")
+library(readr)
+library(dplyr)
+library(tidyr)
+# Shared project. If you do not have the shared datathon project, you may use your own GCP project.
+project_id <- "nyu-datathon"
+options(httr_oauth_cache=FALSE)
+# Wrapper for running BigQuery queries.
+run_query <- function(query){
+    data <- query_exec(query, project=project_id, use_legacy_sql = FALSE)
+    return(data)
+}
+```
+
+
+```{r}
+df <- run_query("
+select
+    ie.patientunitstayid, le.labname, le.labresult, le.labresulttext, le.labresultoffset
+    FROM `nyu-datathon.Team8.filtered_for_apache_version_hospital_prediction`  ie
+  left join `physionet-data.eicu_crd.lab`  le
+    on ie.patientunitstayid = le.patientunitstayid
+    and le.labname = 'chloride'
+    and le.labresulttext is not null"
+  )
+```
+```{r}
+total_fluid <- run_query("select * from `nyu-datathon.Team8.total_fluid_for_aki`")
+
+ggplot(total_fluid, aes(x=AKI_stage_7day_creat)) + 
+  geom_histogram(binwidth=1)
+
+normal_saline = total_fluid %>% 
+  select(normal_saline) %>% 
+  filter(normal_saline > 0) %>% 
+  mutate(fluid = "normal_saline")
+colnames(normal_saline) = c("value", "fluid")
+
+lactated = total_fluid %>% 
+  select(lactated_ringers) %>% 
+  filter(lactated_ringers > 0) %>% 
+  mutate(fluid = "lactated_ringers")
+colnames(lactated) = c("value", "fluid")
+
+comb = rbind(normal_saline, lactated)
+  
+ggplot(comb, aes(x= fluid, y = value, color = fluid)) + 
+  geom_boxplot()
+
+
+####
+
+normal_saline = total_fluid %>% 
+  select(normal_saline, AKI_stage_7day_creat) %>% 
+  filter(normal_saline > 0)
+normal_saline$AKI_stage_7day_creat <- as.factor(normal_saline$AKI_stage_7day_creat)
+ggplot(normal_saline, aes(x= AKI_stage_7day_creat, y = normal_saline, color = AKI_stage_7day_creat)) + 
+  geom_boxplot()
+
+stage1 = normal_saline %>% filter(AKI_stage_7day_creat == 1)
+stage2 = normal_saline %>% filter(AKI_stage_7day_creat == 2)
+stage3 = normal_saline %>% filter(AKI_stage_7day_creat == 3)
+
+t.test(stage1$normal_saline, stage2$normal_saline)
+t.test(stage1$normal_saline, stage3$normal_saline)
+
+lactated = total_fluid %>% 
+  select(lactated_ringers, AKI_stage_7day_creat) %>% 
+  filter(lactated_ringers > 0)
+lactated$AKI_stage_7day_creat <- as.factor(lactated$AKI_stage_7day_creat)
+ggplot(lactated, aes(x= AKI_stage_7day_creat, y = lactated_ringers, color = AKI_stage_7day_creat)) + 
+  geom_boxplot()
+
+stage1 = lactated %>% filter(AKI_stage_7day_creat == 1)
+stage2 = lactated %>% filter(AKI_stage_7day_creat == 2)
+stage3 = lactated %>% filter(AKI_stage_7day_creat == 3)
+
+t.test(stage1$lactated_ringers, stage2$lactated_ringers)
+t.test(stage1$lactated_ringers, stage3$lactated_ringers)
+
+```
